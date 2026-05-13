@@ -198,20 +198,6 @@ class QHYCCD:
         ]
         self.lib.GetQHYCCDSingleFrame.restype = ctypes.c_uint32
 
-        self.lib.GetQHYCCDSingleFrame_proc.argtypes = [
-            c_void_p,
-            c_uint32_p,
-            c_uint32_p,
-            c_uint32_p,
-            c_uint32_p,
-            ctypes.POINTER(ctypes.c_uint8),
-            ctypes.c_uint8,
-            ctypes.c_uint32,
-            ctypes.c_uint32,
-            ctypes.c_uint8,
-        ]
-        self.lib.GetQHYCCDSingleFrame_proc.restype = ctypes.c_uint32
-
     def connect_first_camera(self, exposure_us: float) -> ChipInfo:
         if self.handle:
             self.set_exposure(exposure_us)
@@ -308,34 +294,6 @@ class QHYCCD:
         )
 
     def capture_single_frame(self, exposure_us: float) -> Frame:
-        return self._capture(exposure_us, use_proc=False)
-
-    def capture_single_frame_proc(
-        self,
-        exposure_us: float,
-        proc_overscan: bool,
-        proc_binx: int,
-        proc_biny: int,
-        proc_bin_avg: bool,
-    ) -> Frame:
-        return self._capture(
-            exposure_us,
-            use_proc=True,
-            proc_overscan=proc_overscan,
-            proc_binx=proc_binx,
-            proc_biny=proc_biny,
-            proc_bin_avg=proc_bin_avg,
-        )
-
-    def _capture(
-        self,
-        exposure_us: float,
-        use_proc: bool,
-        proc_overscan: bool = False,
-        proc_binx: int = 1,
-        proc_biny: int = 1,
-        proc_bin_avg: bool = False,
-    ) -> Frame:
         if not self.handle or self.frame_buffer is None or self.chip_info is None:
             self.connect_first_camera(exposure_us)
 
@@ -352,30 +310,15 @@ class QHYCCD:
         bpp = ctypes.c_uint32(self.chip_info.bpp)
         channels = ctypes.c_uint32(1)
 
-        if use_proc:
-            code = self.lib.GetQHYCCDSingleFrame_proc(
-                self.handle,
-                ctypes.byref(width),
-                ctypes.byref(height),
-                ctypes.byref(bpp),
-                ctypes.byref(channels),
-                self.frame_buffer,
-                1 if proc_overscan else 0,
-                int(proc_binx),
-                int(proc_biny),
-                1 if proc_bin_avg else 0,
-            )
-            _check_return(code, "GetQHYCCDSingleFrame_proc")
-        else:
-            code = self.lib.GetQHYCCDSingleFrame(
-                self.handle,
-                ctypes.byref(width),
-                ctypes.byref(height),
-                ctypes.byref(bpp),
-                ctypes.byref(channels),
-                self.frame_buffer,
-            )
-            _check_return(code, "GetQHYCCDSingleFrame")
+        code = self.lib.GetQHYCCDSingleFrame(
+            self.handle,
+            ctypes.byref(width),
+            ctypes.byref(height),
+            ctypes.byref(bpp),
+            ctypes.byref(channels),
+            self.frame_buffer,
+        )
+        _check_return(code, "GetQHYCCDSingleFrame")
 
         byte_len = width.value * height.value * channels.value * max(bpp.value, 8) // 8
         return Frame(

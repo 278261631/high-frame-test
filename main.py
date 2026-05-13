@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -10,13 +9,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -32,11 +29,6 @@ def append_trace(message: str) -> None:
     print(line)
     with (APP_DIR / "test_qt_python_trace.log").open("a", encoding="utf-8") as log_file:
         log_file.write(line + "\n")
-
-
-def make_safe_tag(raw: str) -> str:
-    safe = re.sub(r"\W+", "_", raw, flags=re.ASCII).strip("_")
-    return safe or "image"
 
 
 def make_checkerboard_brush() -> QBrush:
@@ -58,21 +50,13 @@ class CameraSingleWindow(QWidget):
         self.resize(1000, 700)
 
         self.camera: QHYCCD | None = None
-        self.last_image: QImage | None = None
-        self.last_image_tag1 = "single"
-        self.last_image_tag2 = "image"
 
         root_layout = QVBoxLayout(self)
         button_layout = QHBoxLayout()
-        proc_layout = QHBoxLayout()
 
         self.connect_button = QPushButton("连接相机")
         self.capture_button = QPushButton("单帧拍摄")
-        self.capture_proc_button = QPushButton("单帧拍摄(proc)")
-        self.save_button = QPushButton("保存当前图像")
         self.capture_button.setEnabled(False)
-        self.capture_proc_button.setEnabled(False)
-        self.save_button.setEnabled(False)
 
         self.exposure_label = QLabel("曝光(us):")
         self.exposure_spin = QDoubleSpinBox()
@@ -84,28 +68,8 @@ class CameraSingleWindow(QWidget):
 
         button_layout.addWidget(self.connect_button)
         button_layout.addWidget(self.capture_button)
-        button_layout.addWidget(self.capture_proc_button)
-        button_layout.addWidget(self.save_button)
         button_layout.addWidget(self.exposure_label)
         button_layout.addWidget(self.exposure_spin)
-
-        self.proc_overscan_check = QCheckBox("proc_overscan")
-        self.proc_binx_label = QLabel("proc_binx:")
-        self.proc_binx_spin = QSpinBox()
-        self.proc_binx_spin.setRange(1, 8)
-        self.proc_binx_spin.setValue(1)
-        self.proc_biny_label = QLabel("proc_biny:")
-        self.proc_biny_spin = QSpinBox()
-        self.proc_biny_spin.setRange(1, 8)
-        self.proc_biny_spin.setValue(1)
-        self.proc_bin_avg_check = QCheckBox("proc_bin_avg")
-
-        proc_layout.addWidget(self.proc_overscan_check)
-        proc_layout.addWidget(self.proc_binx_label)
-        proc_layout.addWidget(self.proc_binx_spin)
-        proc_layout.addWidget(self.proc_biny_label)
-        proc_layout.addWidget(self.proc_biny_spin)
-        proc_layout.addWidget(self.proc_bin_avg_check)
 
         self.status_label = QLabel("状态：未连接")
         self.image_label = QLabel()
@@ -120,14 +84,11 @@ class CameraSingleWindow(QWidget):
         self.image_label.setText("等待图像...")
 
         root_layout.addLayout(button_layout)
-        root_layout.addLayout(proc_layout)
         root_layout.addWidget(self.status_label)
         root_layout.addWidget(self.image_label, 1)
 
         self.connect_button.clicked.connect(self.connect_camera)
         self.capture_button.clicked.connect(self.capture_single_frame)
-        self.capture_proc_button.clicked.connect(self.capture_single_frame_proc)
-        self.save_button.clicked.connect(self.save_current_image)
 
     def connect_camera(self) -> bool:
         append_trace("connect_camera: enter")
@@ -150,7 +111,6 @@ class CameraSingleWindow(QWidget):
             f"{chip_info.image_width} x {chip_info.image_height}，曝光 {self.exposure_spin.value():.0f} us"
         )
         self.capture_button.setEnabled(True)
-        self.capture_proc_button.setEnabled(True)
         append_trace(
             "connect_camera: ok "
             f"w={chip_info.image_width} h={chip_info.image_height} bpp={chip_info.bpp}"
@@ -174,48 +134,6 @@ class CameraSingleWindow(QWidget):
             frame.channels,
             frame.data,
             "GetQHYCCDSingleFrame",
-            f"single_exp{int(exposure_us)}",
-        )
-
-    def capture_single_frame_proc(self) -> None:
-        if not self.connect_camera() or self.camera is None:
-            return
-
-        exposure_us = self.exposure_spin.value()
-        self._run_busy_action("状态：正在 proc 单帧采集...", self._capture_single_frame_proc_impl, exposure_us)
-
-    def _capture_single_frame_proc_impl(self, exposure_us: float) -> None:
-        assert self.camera is not None
-        proc_overscan = self.proc_overscan_check.isChecked()
-        proc_binx = self.proc_binx_spin.value()
-        proc_biny = self.proc_biny_spin.value()
-        proc_bin_avg = self.proc_bin_avg_check.isChecked()
-
-        frame = self.camera.capture_single_frame_proc(
-            exposure_us,
-            proc_overscan,
-            proc_binx,
-            proc_biny,
-            proc_bin_avg,
-        )
-
-        proc_desc = (
-            "GetQHYCCDSingleFrame_proc("
-            f"overscan={int(proc_overscan)}, binx={proc_binx}, "
-            f"biny={proc_biny}, bin_avg={int(proc_bin_avg)})"
-        )
-        proc_tag = (
-            f"proc_o{int(proc_overscan)}_x{proc_binx}_y{proc_biny}_"
-            f"a{int(proc_bin_avg)}_exp{int(exposure_us)}"
-        )
-        self.render_frame_and_show_status(
-            frame.width,
-            frame.height,
-            frame.bpp,
-            frame.channels,
-            frame.data,
-            proc_desc,
-            proc_tag,
         )
 
     def _run_busy_action(self, status: str, action, *args) -> None:
@@ -234,26 +152,6 @@ class CameraSingleWindow(QWidget):
         finally:
             QApplication.restoreOverrideCursor()
 
-    def save_current_image(self) -> None:
-        if self.last_image is None or self.last_image.isNull():
-            self.status_label.setText("状态：没有可保存的图像")
-            return
-
-        target_dir = APP_DIR / datetime.now().strftime("%Y%m%d")
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        file_name = (
-            f"{datetime.now():%H%M%S}_"
-            f"{make_safe_tag(self.last_image_tag1)}_"
-            f"{make_safe_tag(self.last_image_tag2)}.png"
-        )
-        file_path = target_dir / file_name
-        if not self.last_image.save(str(file_path), "PNG"):
-            self.status_label.setText("状态：保存 PNG 失败")
-            return
-
-        self.status_label.setText(f"状态：图像已保存到 {file_path}")
-
     def render_frame_and_show_status(
         self,
         width: int,
@@ -262,7 +160,6 @@ class CameraSingleWindow(QWidget):
         channels: int,
         frame_data: bytes,
         source_name: str,
-        file_tag2: str,
     ) -> None:
         if channels != 1:
             QMessageBox.warning(self, "提示", "示例当前仅显示单通道图像")
@@ -303,10 +200,6 @@ class CameraSingleWindow(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
-        self.last_image = image
-        self.last_image_tag1 = "proc" if "_proc" in source_name else "single"
-        self.last_image_tag2 = file_tag2
-        self.save_button.setEnabled(True)
         self.status_label.setText(
             f"状态：采集成功 [{source_name}]，输出尺寸 {width} x {height}, bpp={bpp}, channels={channels}"
         )
